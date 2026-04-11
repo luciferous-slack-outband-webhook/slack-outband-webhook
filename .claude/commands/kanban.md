@@ -27,17 +27,5 @@ EnterPlanMode を使ってプランモードに入り、以下の手順で計画
 4. 作業完了時:
    - ログファイルの完了日時を更新し最終化する
    - kanban ファイルへ `## 完了サマリー` を追記する（完了日時は JST ISO 8601 形式）
-5. 変更を自動コミットする（ステップ4完了後、同じターン内で実施）:
-   - ステージ対象は以下に厳格に限定する（`git add -A` / `git add .` は使用しない）:
-     - `kanban/{xxxx}_{title}.md`
-     - `logs/{xxxx}_{title}.md`
-     - 今回のタスクで編集・追加したソースファイル（= 完了サマリーの「変更ファイル」に列挙したもの）
-   - 変更ファイルを明示的に `git add <path> [<path> ...]` で個別指定する
-   - コミットメッセージは直前に書いた `## 完了サマリー` と kanban ファイルの「要望」を基に生成する
-   - フォーマットは `.claude/kanban-workflow.md` の「自動コミットメッセージテンプレート」に従う
-   - git コマンド（`git add` / `git commit`）は Bash tool の `dangerouslyDisableSandbox: true` を指定して実行する（`.git/**` への書き込みがサンドボックス制約に抵触するため）
-   - フックはスキップしない（`--no-verify` / `--no-gpg-sign` を付けない）
-   - コミット後は `git log -1 --stat` で意図したファイルがコミットに含まれていることを確認する
-   - push は行わない
 
 詳細なテンプレートは `.claude/kanban-workflow.md` を参照すること。
