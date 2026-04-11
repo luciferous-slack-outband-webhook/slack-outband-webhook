@@ -32,6 +32,6 @@ Cargo.lock
 *.pdb
 
 ## Custom
-setting.local.json
+settings.local.json
 tmp/
 .idea/
