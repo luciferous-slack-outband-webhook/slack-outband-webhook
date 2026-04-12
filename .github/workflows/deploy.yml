@@ -19,6 +19,11 @@ jobs:
         with:
           targets: wasm32-unknown-unknown
 
+      - name: Cache dependencies
+        uses: Swatinem/rust-cache@v2
+        with:
+          cache-directories: "~/.cargo/bin"
+
       - name: Deploy to Cloudflare Workers
         uses: cloudflare/wrangler-action@v3
         with:
