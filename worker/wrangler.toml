@@ -1,6 +1,7 @@
 name = "slack-outband-webhook"
 main = "build/worker/shim.mjs"
 compatibility_date = "2025-01-01"
+logpush = true
 
 [build]
 command = "cargo install worker-build && worker-build --release"
