@@ -1,0 +1,268 @@
+name: Codex Code Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, ready_for_review, reopened]
+
+concurrency:
+  group: codex-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  codex-structured-review:
+    if: github.event.pull_request.draft == false
+    name: Run Codex structured review
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      issues: read
+    env:
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+      GITHUB_TOKEN: ${{ github.token }}
+      CODEX_MODEL: ${{ vars.CODEX_MODEL || 'o4-mini' }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+      BASE_SHA: ${{ github.event.pull_request.base.sha }}
+      REPOSITORY: ${{ github.repository }}
+
+    steps:
+      - name: Checkout pull request merge commit
+        uses: actions/checkout@v5
+        with:
+          ref: refs/pull/${{ github.event.pull_request.number }}/merge
+
+      - name: Fetch base and head refs
+        run: |
+          set -euxo pipefail
+          git fetch --no-tags origin \
+            ${{ github.event.pull_request.base.ref }} \
+            +refs/pull/${{ github.event.pull_request.number }}/head
+
+      # 過去のレビューコメントを取得（Codex は read-only sandbox のため事前に収集）
+      - name: Fetch past review comments
+        id: past-comments
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          PAST_CONTEXT="past-review-context.md"
+
+          echo "## 過去のレビューコメント" > "$PAST_CONTEXT"
+          echo "" >> "$PAST_CONTEXT"
+          echo "以下は過去のレビューで投稿されたコメントです。" >> "$PAST_CONTEXT"
+          echo "既に修正済みの指摘は繰り返さないでください。" >> "$PAST_CONTEXT"
+          echo "未対応の指摘がある場合はその旨をサマリーに含めてください。" >> "$PAST_CONTEXT"
+          echo "" >> "$PAST_CONTEXT"
+
+          # PR レビューコメント（コード行へのインラインコメント）
+          echo "### インラインレビューコメント" >> "$PAST_CONTEXT"
+          gh api "repos/${REPOSITORY}/pulls/${PR_NUMBER}/comments" \
+            --jq '.[] | "- **\(.user.login)** (\(.created_at)) [`\(.path)` L\(.line // .original_line // "?")`]:\n  \(.body)\n"' \
+            >> "$PAST_CONTEXT" 2>/dev/null || echo "_取得できませんでした_" >> "$PAST_CONTEXT"
+          echo "" >> "$PAST_CONTEXT"
+
+          # PR 一般コメント（会話コメント）
+          echo "### 一般コメント" >> "$PAST_CONTEXT"
+          gh api "repos/${REPOSITORY}/issues/${PR_NUMBER}/comments" \
+            --jq '.[] | "- **\(.user.login)** (\(.created_at)):\n  \(.body)\n"' \
+            >> "$PAST_CONTEXT" 2>/dev/null || echo "_取得できませんでした_" >> "$PAST_CONTEXT"
+          echo "" >> "$PAST_CONTEXT"
+
+          # PR レビューサマリー（APPROVE / REQUEST_CHANGES / COMMENT）
+          echo "### レビュー判定履歴" >> "$PAST_CONTEXT"
+          gh api "repos/${REPOSITORY}/pulls/${PR_NUMBER}/reviews" \
+            --jq '.[] | "- **\(.user.login)** → \(.state) (\(.submitted_at))\n  \(.body)\n"' \
+            >> "$PAST_CONTEXT" 2>/dev/null || echo "_取得できませんでした_" >> "$PAST_CONTEXT"
+          echo "" >> "$PAST_CONTEXT"
+
+          echo "past_context_file=${PAST_CONTEXT}" >> "$GITHUB_OUTPUT"
+
+      # プロンプトファイルに PR コンテキスト + 過去コメントを追記
+      - name: Build review prompt
+        run: |
+          set -euo pipefail
+          PROMPT_PATH="codex-prompt.md"
+
+          # ベースプロンプトをコピー
+          cp .github/codex/codex-prompt.md "$PROMPT_PATH"
+
+          # PR 情報を追記
+          {
+            echo ""
+            echo "- リポジトリ: ${REPOSITORY}"
+            echo "- PR番号: #${PR_NUMBER}"
+            echo "- タイトル: ${{ github.event.pull_request.title }}"
+            echo "- Base ref: ${{ github.event.pull_request.base.ref }}"
+            echo "- Head ref: ${{ github.event.pull_request.head.ref }}"
+            echo "- Base SHA: ${BASE_SHA}"
+            echo "- Head SHA: ${HEAD_SHA}"
+            echo ""
+            # 過去のレビューコメントを埋め込み
+            cat "${{ steps.past-comments.outputs.past_context_file }}"
+            echo ""
+            echo "## 変更ファイル一覧"
+            git --no-pager diff --name-status "${BASE_SHA}" "${HEAD_SHA}"
+            echo ""
+            echo "## 差分 (context=5)"
+            git --no-pager diff --unified=5 --stat=200 "${BASE_SHA}" "${HEAD_SHA}"
+            echo ""
+            git --no-pager diff --unified=5 "${BASE_SHA}" "${HEAD_SHA}"
+          } >> "$PROMPT_PATH"
+
+      # Codex を structured output モードで実行
+      - name: Run Codex structured review
+        id: run-codex
+        uses: openai/codex-action@v1
+        with:
+          openai-api-key: ${{ secrets.OPENAI_API_KEY }}
+          prompt-file: codex-prompt.md
+          sandbox: read-only
+          model: ${{ env.CODEX_MODEL }}
+          safety-strategy: drop-sudo
+          output-schema-file: .github/codex/codex-output-schema.json
+          output-file: codex-output.json
+
+      # JSON 出力をパースしてインラインコメント付き PR レビューを投稿
+      - name: Post inline review comments
+        if: always() && hashFiles('codex-output.json') != ''
+        uses: actions/github-script@v7
+        env:
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        with:
+          github-token: ${{ github.token }}
+          script: |
+            const fs = require('fs');
+            const path = require('path');
+
+            // Codex の構造化出力を読み込み
+            let review;
+            try {
+              const raw = fs.readFileSync('codex-output.json', 'utf8');
+              review = JSON.parse(raw);
+            } catch (e) {
+              console.log('Failed to parse codex-output.json:', e.message);
+              return;
+            }
+
+            const findings = review.findings || [];
+            const summary = review.summary || '';
+            const correctness = review.overall_correctness || '';
+            const confidence = review.overall_confidence_score ?? 'N/A';
+
+            // サマリーコメント本文を構築
+            const icon = correctness === 'patch is correct' ? '✅' : '⚠️';
+            let body = `## Codex Code Review\n\n`;
+            body += `${icon} **判定**: ${correctness} (信頼度: ${confidence})\n\n`;
+            if (summary) {
+              body += `### 要約\n${summary}\n\n`;
+            }
+            body += `**指摘件数**: ${findings.length} 件\n`;
+
+            // ワークスペースパスのプレフィックスを除去してリポジトリ相対パスを取得
+            const workspace = process.env.GITHUB_WORKSPACE || '/home/runner/work';
+            function toRelativePath(absPath) {
+              // /home/runner/work/repo/repo/src/main.rs -> src/main.rs
+              let rel = absPath;
+              if (rel.startsWith(workspace)) {
+                rel = rel.slice(workspace.length);
+              }
+              // 先頭の / を除去
+              rel = rel.replace(/^\/+/, '');
+              // owner/repo/ プレフィックスがある場合も除去
+              const repo = process.env.GITHUB_REPOSITORY || '';
+              const repoName = repo.split('/')[1] || '';
+              if (repoName) {
+                const prefix = repoName + '/';
+                if (rel.startsWith(prefix)) {
+                  rel = rel.slice(prefix.length);
+                }
+              }
+              return rel;
+            }
+
+            // インラインコメントを構築
+            const comments = [];
+            for (const f of findings) {
+              const loc = f.code_location;
+              if (!loc || !loc.absolute_file_path || !loc.line_range) continue;
+
+              const filePath = toRelativePath(loc.absolute_file_path);
+              const startLine = loc.line_range.start;
+              const endLine = loc.line_range.end;
+
+              const priorityLabel = ['P0 🔴', 'P1 🟠', 'P2 🟡', 'P3 🔵'][f.priority] || `P${f.priority}`;
+              let commentBody = `**${priorityLabel}**: ${f.title}\n\n${f.body}`;
+              if (f.confidence_score != null) {
+                commentBody += `\n\n_信頼度: ${f.confidence_score}_`;
+              }
+
+              const comment = {
+                path: filePath,
+                body: commentBody,
+                side: 'RIGHT',
+              };
+
+              // 複数行の場合は start_line/line、単一行の場合は line のみ
+              if (startLine === endLine) {
+                comment.line = endLine;
+              } else {
+                comment.start_line = startLine;
+                comment.line = endLine;
+              }
+
+              comments.push(comment);
+            }
+
+            // PR レビューを投稿（インラインコメント付き）
+            const event = findings.some(f => f.priority <= 1)
+              ? 'REQUEST_CHANGES'
+              : (findings.length > 0 ? 'COMMENT' : 'APPROVE');
+
+            try {
+              if (comments.length > 0) {
+                await github.rest.pulls.createReview({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  pull_number: parseInt(process.env.PR_NUMBER),
+                  commit_id: process.env.HEAD_SHA,
+                  body: body,
+                  event: event,
+                  comments: comments,
+                });
+                console.log(`Posted review with ${comments.length} inline comment(s) [${event}]`);
+              } else {
+                // 指摘なしの場合はサマリーのみ投稿
+                await github.rest.pulls.createReview({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  pull_number: parseInt(process.env.PR_NUMBER),
+                  commit_id: process.env.HEAD_SHA,
+                  body: body,
+                  event: 'APPROVE',
+                  comments: [],
+                });
+                console.log('No findings — posted approval review');
+              }
+            } catch (err) {
+              console.error('Failed to post review:', err.message);
+              // フォールバック: インラインコメントが失敗した場合、通常コメントとして投稿
+              let fallbackBody = body + '\n\n---\n\n';
+              for (const f of findings) {
+                const loc = f.code_location;
+                const filePath = loc ? toRelativePath(loc.absolute_file_path) : '不明';
+                const lines = loc?.line_range ? `L${loc.line_range.start}-L${loc.line_range.end}` : '';
+                const priorityLabel = ['P0 🔴', 'P1 🟠', 'P2 🟡', 'P3 🔵'][f.priority] || `P${f.priority}`;
+                fallbackBody += `### ${priorityLabel}: ${f.title}\n`;
+                fallbackBody += `📄 \`${filePath}\` ${lines}\n\n`;
+                fallbackBody += `${f.body}\n\n`;
+              }
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: parseInt(process.env.PR_NUMBER),
+                body: fallbackBody,
+              });
+              console.log('Fallback: posted findings as issue comment');
+            }

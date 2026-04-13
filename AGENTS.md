@@ -1,6 +1,6 @@
-# CLAUDE.md
+# AGENTS.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to OpenAI Codex when working with code in this repository.
 
 ## Overview
 
@@ -43,17 +43,11 @@ Rust Cargo ワークスペース構成。
 - `cli` と `worker` はそれぞれ独立したバイナリ。共通コードは `shared` に置く。
 - Rust edition 2024 を使用。
 
-## CI
+## Review guidelines
 
-`.github/workflows/semgrep.yml` が Semgrep による静的解析を実行する（push/PR/日次スケジュール）。
-
-## Kanban ワークフロー
-
-タスク管理に kanban 方式を採用している。詳細は `.claude/kanban-workflow.md` を参照。
-
-- `kanban/` にタスクファイル（`{xxxx}_{title}.md`）を配置する
-- `logs/` に同名のログファイルが自動生成される（git 管理対象）
-- **タスク開始時は `/kanban` コマンドを使用すること**
-- `/kanban` はまずプランモードで計画を立て、承認後に実装に移る
-- **タスク作業中は、各ステップ完了時に必ずログファイルを更新すること**
-- kanban ファイルへの追記時・ログへの記録時は JST タイムゾーンの ISO 8601 形式で日時を記載する
+- レビューは必ず日本語で行うこと
+- コード品質、セキュリティ、パフォーマンス、潜在的バグに注目する
+- Rust のイディオムとベストプラクティスに従っているか確認する
+- `unsafe` コードの使用がある場合は特に注意してレビューする
+- Cloudflare Workers 固有の制約（CPU 時間制限、メモリ制限等）を考慮する
+- 些末な指摘（typo、フォーマット等）は P1 未満として扱い、重大な問題を優先する

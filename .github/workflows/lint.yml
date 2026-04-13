@@ -1,0 +1,33 @@
+name: Lint Check
+
+on:
+  pull_request:
+    branches:
+      - master
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+          components: clippy, rustfmt
+
+      - name: Cache dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Check formatting
+        run: cargo fmt --all --check
+
+      - name: Clippy native crates
+        run: cargo clippy -p shared -p cli -- -D warnings
+
+      - name: Clippy worker crate (wasm32)
+        run: cargo clippy -p slack-outband-webhook-worker --target wasm32-unknown-unknown -- -D warnings
