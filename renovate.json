@@ -1,6 +1,28 @@
 {
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
-    "config:recommended"
-  ]
+    "config:recommended",
+    "helpers:pinGitHubActionDigestsToSemver",
+    "docker:pinDigests"
+  ],
+  "minimumReleaseAge": "7 days",
+  "packageRules": [
+    {
+      "matchUpdateTypes": ["pin", "pinDigest"],
+      "groupName": "version pinning",
+      "schedule": "at any time",
+      "automerge": true
+    }
+  ],
+  "github-actions": {
+    "packageRules": [
+      {
+        "matchDepTypes": ["action"],
+        "matchUpdateTypes": ["patch", "minor"],
+        "groupName": "GitHub Actions",
+        "schedule": "before 4am on monday",
+        "automerge": true
+      }
+    ]
+  }
 }
