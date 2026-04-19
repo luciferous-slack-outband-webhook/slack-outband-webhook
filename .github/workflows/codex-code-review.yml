@@ -32,6 +32,11 @@ jobs:
         with:
           ref: refs/pull/${{ github.event.pull_request.number }}/merge
 
+      - name: Strip kanban and logs from workspace
+        run: |
+          set -euxo pipefail
+          rm -rf kanban logs
+
       - name: Fetch base and head refs
         run: |
           set -euxo pipefail
@@ -58,7 +63,7 @@ jobs:
           # PR レビューコメント（コード行へのインラインコメント）
           echo "### インラインレビューコメント" >> "$PAST_CONTEXT"
           gh api "repos/${REPOSITORY}/pulls/${PR_NUMBER}/comments" \
-            --jq '.[] | "- **\(.user.login)** (\(.created_at)) [`\(.path)` L\(.line // .original_line // "?")`]:\n  \(.body)\n"' \
+            --jq '.[] | select((.path // "") | startswith("kanban/") or startswith("logs/") | not) | "- **\(.user.login)** (\(.created_at)) [`\(.path)` L\(.line // .original_line // "?")`]:\n  \(.body)\n"' \
             >> "$PAST_CONTEXT" 2>/dev/null || echo "_取得できませんでした_" >> "$PAST_CONTEXT"
           echo "" >> "$PAST_CONTEXT"
 
