@@ -102,12 +102,12 @@ jobs:
             cat "${{ steps.past-comments.outputs.past_context_file }}"
             echo ""
             echo "## 変更ファイル一覧"
-            git --no-pager diff --name-status "${BASE_SHA}" "${HEAD_SHA}"
+            git --no-pager diff --name-status "${BASE_SHA}" "${HEAD_SHA}" -- '.' ':(exclude)kanban/' ':(exclude)logs/'
             echo ""
             echo "## 差分 (context=5)"
-            git --no-pager diff --unified=5 --stat=200 "${BASE_SHA}" "${HEAD_SHA}"
+            git --no-pager diff --unified=5 --stat=200 "${BASE_SHA}" "${HEAD_SHA}" -- '.' ':(exclude)kanban/' ':(exclude)logs/'
             echo ""
-            git --no-pager diff --unified=5 "${BASE_SHA}" "${HEAD_SHA}"
+            git --no-pager diff --unified=5 "${BASE_SHA}" "${HEAD_SHA}" -- '.' ':(exclude)kanban/' ':(exclude)logs/'
           } >> "$PROMPT_PATH"
 
       # Codex を structured output モードで実行
