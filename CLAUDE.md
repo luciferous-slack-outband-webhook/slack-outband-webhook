@@ -45,7 +45,24 @@ Rust Cargo ワークスペース構成。
 
 ## CI
 
-`.github/workflows/semgrep.yml` が Semgrep による静的解析を実行する（push/PR/日次スケジュール）。
+| ワークフロー | 実行タイミング | 内容 |
+|---|---|---|
+| `build.yml` | PR（master 向け） | `cargo check`（native: `shared`, `cli` / wasm32: `worker`） |
+| `lint.yml` | PR | clippy, fmt など |
+| `semgrep.yml` | push/PR/日次 | Semgrep による静的解析 |
+| `codex-code-review.yml` | PR（non-draft） | Codex による PR レビュー |
+
+### Codex Code Review について
+
+`codex-code-review.yml` では、幻覚によるビルドエラー誤指摘を抑制するため、Codex 実行前に `cargo check` を実行してその結果をプロンプトに注入している。
+
+**ビルドターゲットを追加・変更する場合は `build.yml` と `codex-code-review.yml` の `cargo check` コマンドを必ず同期して更新すること。**
+
+現在の `cargo check` コマンド（両ワークフロー共通）：
+- `cargo check -p shared -p cli`（native）
+- `cargo check -p slack-outband-webhook-worker --target wasm32-unknown-unknown`（wasm32）
+
+例：CLI の macOS/Windows 向けクロスコンパイルを追加する場合、両ワークフローに対応する target のチェックステップを追加する。
 
 ## Kanban ワークフロー
 
