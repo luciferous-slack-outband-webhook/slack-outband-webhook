@@ -52,7 +52,7 @@ jobs:
           echo "" >> "$PAST_CONTEXT"
           echo "以下は過去のレビューで投稿されたコメントです。" >> "$PAST_CONTEXT"
           echo "既に修正済みの指摘は繰り返さないでください。" >> "$PAST_CONTEXT"
-          echo "未対応の指摘がある場合はその旨をサマリーに含めてください。" >> "$PAST_CONTEXT"
+          echo "未対応の指摘がある場合は findings として再度指摘してください（サマリーだけでなく findings 配列に含めること）。" >> "$PAST_CONTEXT"
           echo "" >> "$PAST_CONTEXT"
 
           # PR レビューコメント（コード行へのインラインコメント）
