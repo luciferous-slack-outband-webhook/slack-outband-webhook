@@ -61,11 +61,7 @@ async fn verify_slack_signature(
         .map_err(|_| Response::error("Invalid timestamp", 401))?;
 
     let now_seconds = Date::now().as_millis() / 1000;
-    let diff = if now_seconds > ts {
-        now_seconds - ts
-    } else {
-        ts - now_seconds
-    };
+    let diff = now_seconds.abs_diff(ts);
     if diff > TIMESTAMP_TOLERANCE_SECONDS {
         return Err(Response::error("Timestamp too old", 401));
     }
