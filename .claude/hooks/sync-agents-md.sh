@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # sync-agents-md.sh
 # PostToolUse hook として使用
-# CLAUDE.md が編集されたとき、共通セクションを AGENTS.md に同期する
+# CLAUDE.md が編集されたとき、全セクションを AGENTS.md に同期する
 
 # jq の存在確認
 if ! command -v jq &> /dev/null; then
@@ -34,8 +34,9 @@ if [ ! -f "$CLAUDE_MD" ]; then
     exit 0
 fi
 
-# 共通セクション定義（CLAUDE.md と AGENTS.md の両方に存在するセクション）
-SHARED_SECTIONS=("Overview" "Commands" "Architecture")
+# CLAUDE.md から除外するセクション（Claude Code 固有で AGENTS.md に不要なセクション）
+# 現時点では除外なし。必要に応じてセクション名を追加する。
+EXCLUDE_SECTIONS=()
 
 # セクション内容を抽出する関数（先頭・末尾の空白行を除去）
 extract_section() {
@@ -59,20 +60,38 @@ extract_section() {
     ' "$file"
 }
 
-# AGENTS.md の非共通セクション名を収集（順序を保持）
+# CLAUDE.md のセクション名一覧を出現順に収集（除外リストを除く）
+claude_sections=()
+while IFS= read -r line; do
+    if [[ "$line" =~ ^##\ (.+)$ ]]; then
+        section_name="${BASH_REMATCH[1]}"
+        is_excluded=false
+        for excl in "${EXCLUDE_SECTIONS[@]}"; do
+            if [ "$section_name" = "$excl" ]; then
+                is_excluded=true
+                break
+            fi
+        done
+        if [ "$is_excluded" = false ]; then
+            claude_sections+=("$section_name")
+        fi
+    fi
+done < "$CLAUDE_MD"
+
+# AGENTS.md の固有セクション名を収集（CLAUDE.md に存在しないセクション、順序を保持）
 agents_unique_sections=()
 if [ -f "$AGENTS_MD" ]; then
     while IFS= read -r line; do
         if [[ "$line" =~ ^##\ (.+)$ ]]; then
             section_name="${BASH_REMATCH[1]}"
-            is_shared=false
-            for shared in "${SHARED_SECTIONS[@]}"; do
-                if [ "$section_name" = "$shared" ]; then
-                    is_shared=true
+            in_claude=false
+            for cs in "${claude_sections[@]}"; do
+                if [ "$section_name" = "$cs" ]; then
+                    in_claude=true
                     break
                 fi
             done
-            if [ "$is_shared" = false ]; then
+            if [ "$in_claude" = false ]; then
                 agents_unique_sections+=("$section_name")
             fi
         fi
@@ -85,8 +104,8 @@ fi
     printf "\n"
     printf "This file provides guidance to OpenAI Codex when working with code in this repository.\n"
 
-    # 共通セクション（CLAUDE.md の内容を使用、CLAUDE.md での出現順）
-    for section in "${SHARED_SECTIONS[@]}"; do
+    # CLAUDE.md の全セクション（除外対象を除く、出現順）
+    for section in "${claude_sections[@]}"; do
         content=$(extract_section "$CLAUDE_MD" "$section")
         if [ -n "$content" ]; then
             printf "\n"
