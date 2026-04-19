@@ -49,11 +49,12 @@ Rust Cargo ワークスペース構成。
 
 ## Kanban ワークフロー
 
-タスク管理に kanban 方式を採用している。詳細は `.claude/kanban-workflow.md` を参照。
+タスク管理に kanban 方式を採用している。詳細は `.claude/skills/kanban/references/kanban-workflow.md` を参照。
 
 - `kanban/` にタスクファイル（`{xxxx}_{title}.md`）を配置する
 - `logs/` に同名のログファイルが自動生成される（git 管理対象）
-- **タスク開始時は `/kanban` コマンドを使用すること**
+- `kanban/` と `logs/` は開発者向けの記録であり、Codex Code Review の対象外としている（`.github/workflows/codex-code-review.yml` で作業ツリーから削除している）
+- **タスク開始時は `/kanban` スキルを使用すること**
 - `/kanban` はまずプランモードで計画を立て、承認後に実装に移る
 - **タスク作業中は、各ステップ完了時に必ずログファイルを更新すること**
 - kanban ファイルへの追記時・ログへの記録時は JST タイムゾーンの ISO 8601 形式で日時を記載する

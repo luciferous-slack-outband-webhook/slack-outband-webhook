@@ -32,6 +32,11 @@ jobs:
         with:
           ref: refs/pull/${{ github.event.pull_request.number }}/merge
 
+      - name: Strip kanban and logs from workspace
+        run: |
+          set -euxo pipefail
+          rm -rf kanban logs
+
       - name: Fetch base and head refs
         run: |
           set -euxo pipefail
@@ -52,13 +57,13 @@ jobs:
           echo "" >> "$PAST_CONTEXT"
           echo "以下は過去のレビューで投稿されたコメントです。" >> "$PAST_CONTEXT"
           echo "既に修正済みの指摘は繰り返さないでください。" >> "$PAST_CONTEXT"
-          echo "未対応の指摘がある場合はその旨をサマリーに含めてください。" >> "$PAST_CONTEXT"
+          echo "未対応の指摘がある場合は findings として再度指摘してください（サマリーだけでなく findings 配列に含めること）。" >> "$PAST_CONTEXT"
           echo "" >> "$PAST_CONTEXT"
 
           # PR レビューコメント（コード行へのインラインコメント）
           echo "### インラインレビューコメント" >> "$PAST_CONTEXT"
           gh api "repos/${REPOSITORY}/pulls/${PR_NUMBER}/comments" \
-            --jq '.[] | "- **\(.user.login)** (\(.created_at)) [`\(.path)` L\(.line // .original_line // "?")`]:\n  \(.body)\n"' \
+            --jq '.[] | select((.path // "") | startswith("kanban/") or startswith("logs/") | not) | "- **\(.user.login)** (\(.created_at)) [`\(.path)` L\(.line // .original_line // "?")`]:\n  \(.body)\n"' \
             >> "$PAST_CONTEXT" 2>/dev/null || echo "_取得できませんでした_" >> "$PAST_CONTEXT"
           echo "" >> "$PAST_CONTEXT"
 
@@ -102,12 +107,12 @@ jobs:
             cat "${{ steps.past-comments.outputs.past_context_file }}"
             echo ""
             echo "## 変更ファイル一覧"
-            git --no-pager diff --name-status "${BASE_SHA}" "${HEAD_SHA}"
+            git --no-pager diff --name-status "${BASE_SHA}" "${HEAD_SHA}" -- '.' ':(exclude)kanban/' ':(exclude)logs/'
             echo ""
             echo "## 差分 (context=5)"
-            git --no-pager diff --unified=5 --stat=200 "${BASE_SHA}" "${HEAD_SHA}"
+            git --no-pager diff --unified=5 --stat=200 "${BASE_SHA}" "${HEAD_SHA}" -- '.' ':(exclude)kanban/' ':(exclude)logs/'
             echo ""
-            git --no-pager diff --unified=5 "${BASE_SHA}" "${HEAD_SHA}"
+            git --no-pager diff --unified=5 "${BASE_SHA}" "${HEAD_SHA}" -- '.' ':(exclude)kanban/' ':(exclude)logs/'
           } >> "$PROMPT_PATH"
 
       # Codex を structured output モードで実行
