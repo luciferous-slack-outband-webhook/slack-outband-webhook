@@ -32,7 +32,7 @@ jobs:
         with:
           ref: refs/pull/${{ github.event.pull_request.number }}/merge
 
-      - name: Strip kanban and logs from workspace
+      - name: Strip kanban from workspace
         run: |
           set -euxo pipefail
           rm -rf kanban
