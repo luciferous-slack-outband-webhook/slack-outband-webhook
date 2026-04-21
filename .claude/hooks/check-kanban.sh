@@ -10,14 +10,17 @@ if [ ! -d "$KANBAN_DIR" ]; then
 fi
 
 incomplete=()
-for f in "$KANBAN_DIR"/*.md; do
-    [ -f "$f" ] || continue
-    if ! grep -q "## 完了サマリー" "$f"; then
-        incomplete+=("$(basename "$f")")
+for dir in "$KANBAN_DIR"/*/; do
+    [ -d "$dir" ] || continue
+    base="$(basename "$dir")"
+    task_file="${dir}${base}.md"
+    [ -f "$task_file" ] || continue
+    if ! grep -q "## 完了サマリー" "$task_file"; then
+        incomplete+=("$base")
     fi
 done
 
 if [ ${#incomplete[@]} -gt 0 ]; then
     echo "[kanban reminder] 未完了タスクがあります: ${incomplete[*]}"
-    echo "作業が進んだら logs/ のログファイルへ記録し、完了時は kanban ファイルへ完了サマリーを追記してください。"
+    echo "作業が進んだら kanban/{xxxx}_{title}/log.md へ記録し、完了時は kanban ファイルへ完了サマリーを追記してください。"
 fi

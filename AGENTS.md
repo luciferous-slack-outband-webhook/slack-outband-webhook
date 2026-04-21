@@ -43,6 +43,39 @@ Rust Cargo ワークスペース構成。
 - `cli` と `worker` はそれぞれ独立したバイナリ。共通コードは `shared` に置く。
 - Rust edition 2024 を使用。
 
+## CI
+
+| ワークフロー | 実行タイミング | 内容 |
+|---|---|---|
+| `build.yml` | PR（master 向け） | `cargo check`（native: `shared`, `cli` / wasm32: `worker`） |
+| `lint.yml` | PR | clippy, fmt など |
+| `semgrep.yml` | push/PR/日次 | Semgrep による静的解析 |
+| `codex-code-review.yml` | PR（non-draft） | Codex による PR レビュー |
+
+### Codex Code Review について
+
+`codex-code-review.yml` では、幻覚によるビルドエラー誤指摘を抑制するため、Codex 実行前に `cargo check` を実行してその結果をプロンプトに注入している。
+
+**ビルドターゲットを追加・変更する場合は `build.yml` と `codex-code-review.yml` の `cargo check` コマンドを必ず同期して更新すること。**
+
+現在の `cargo check` コマンド（両ワークフロー共通）：
+- `cargo check -p shared -p cli`（native）
+- `cargo check -p slack-outband-webhook-worker --target wasm32-unknown-unknown`（wasm32）
+
+例：CLI の macOS/Windows 向けクロスコンパイルを追加する場合、両ワークフローに対応する target のチェックステップを追加する。
+
+## Kanban ワークフロー
+
+タスク管理に kanban 方式を採用している。詳細は `.claude/skills/kanban/references/kanban-workflow.md` を参照。
+
+- `kanban/{xxxx}_{title}/{xxxx}_{title}.md` にタスクファイルを配置する
+- `kanban/{xxxx}_{title}/log.md` にログファイルが自動生成される（git 管理対象）
+- `kanban/` は開発者向けの記録であり、Codex Code Review の対象外としている（`.github/workflows/codex-code-review.yml` で作業ツリーから削除している）
+- **タスク開始時は `/kanban` スキルを使用すること**
+- `/kanban` はまずプランモードで計画を立て、承認後に実装に移る
+- **タスク作業中は、各ステップ完了時に必ずログファイルを更新すること**
+- kanban ファイルへの追記時・ログへの記録時は JST タイムゾーンの ISO 8601 形式で日時を記載する
+
 ## Review guidelines
 
 - レビューは必ず日本語で行うこと

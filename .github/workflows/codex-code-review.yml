@@ -32,6 +32,29 @@ jobs:
         with:
           ref: refs/pull/${{ github.event.pull_request.number }}/merge
 
+      - name: Strip kanban from workspace
+        run: |
+          set -euxo pipefail
+          rm -rf kanban
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+        with:
+          targets: wasm32-unknown-unknown
+
+      - name: Cache dependencies
+        uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
+
+      - name: Run cargo check (native)
+        id: check-native
+        continue-on-error: true
+        run: cargo check -p shared -p cli 2>&1 | tee cargo-check-native.log
+
+      - name: Run cargo check (worker wasm)
+        id: check-wasm
+        continue-on-error: true
+        run: cargo check -p slack-outband-webhook-worker --target wasm32-unknown-unknown 2>&1 | tee cargo-check-wasm.log
+
       - name: Fetch base and head refs
         run: |
           set -euxo pipefail
@@ -52,13 +75,13 @@ jobs:
           echo "" >> "$PAST_CONTEXT"
           echo "以下は過去のレビューで投稿されたコメントです。" >> "$PAST_CONTEXT"
           echo "既に修正済みの指摘は繰り返さないでください。" >> "$PAST_CONTEXT"
-          echo "未対応の指摘がある場合はその旨をサマリーに含めてください。" >> "$PAST_CONTEXT"
+          echo "未対応の指摘がある場合は findings として再度指摘してください（サマリーだけでなく findings 配列に含めること）。" >> "$PAST_CONTEXT"
           echo "" >> "$PAST_CONTEXT"
 
           # PR レビューコメント（コード行へのインラインコメント）
           echo "### インラインレビューコメント" >> "$PAST_CONTEXT"
           gh api "repos/${REPOSITORY}/pulls/${PR_NUMBER}/comments" \
-            --jq '.[] | "- **\(.user.login)** (\(.created_at)) [`\(.path)` L\(.line // .original_line // "?")`]:\n  \(.body)\n"' \
+            --jq '.[] | select((.path // "") | startswith("kanban/") | not) | "- **\(.user.login)** (\(.created_at)) [`\(.path)` L\(.line // .original_line // "?")`]:\n  \(.body)\n"' \
             >> "$PAST_CONTEXT" 2>/dev/null || echo "_取得できませんでした_" >> "$PAST_CONTEXT"
           echo "" >> "$PAST_CONTEXT"
 
@@ -80,6 +103,9 @@ jobs:
 
       # プロンプトファイルに PR コンテキスト + 過去コメントを追記
       - name: Build review prompt
+        env:
+          NATIVE_CHECK_OUTCOME: ${{ steps.check-native.outcome }}
+          WASM_CHECK_OUTCOME: ${{ steps.check-wasm.outcome }}
         run: |
           set -euo pipefail
           PROMPT_PATH="codex-prompt.md"
@@ -98,16 +124,42 @@ jobs:
             echo "- Base SHA: ${BASE_SHA}"
             echo "- Head SHA: ${HEAD_SHA}"
             echo ""
+            # cargo check の結果を埋め込み
+            echo "## ビルド状況 (cargo check)"
+            echo ""
+            echo "- native crates (shared, cli): ${NATIVE_CHECK_OUTCOME}"
+            echo "- worker crate (wasm32-unknown-unknown): ${WASM_CHECK_OUTCOME}"
+            echo ""
+            if [ "${NATIVE_CHECK_OUTCOME}" = "success" ] && [ "${WASM_CHECK_OUTCOME}" = "success" ]; then
+              echo "**cargo check は全て成功しています。ビルドエラー・コンパイル不能に関する指摘は行わないでください。**"
+            else
+              echo "cargo check に失敗したターゲットがあります。以下のログを参照してください。"
+              if [ "${NATIVE_CHECK_OUTCOME}" != "success" ]; then
+                echo ""
+                echo "### cargo check (native) ログ"
+                echo '```'
+                cat cargo-check-native.log
+                echo '```'
+              fi
+              if [ "${WASM_CHECK_OUTCOME}" != "success" ]; then
+                echo ""
+                echo "### cargo check (worker wasm) ログ"
+                echo '```'
+                cat cargo-check-wasm.log
+                echo '```'
+              fi
+            fi
+            echo ""
             # 過去のレビューコメントを埋め込み
             cat "${{ steps.past-comments.outputs.past_context_file }}"
             echo ""
             echo "## 変更ファイル一覧"
-            git --no-pager diff --name-status "${BASE_SHA}" "${HEAD_SHA}"
+            git --no-pager diff --name-status "${BASE_SHA}" "${HEAD_SHA}" -- '.' ':(exclude)kanban/'
             echo ""
             echo "## 差分 (context=5)"
-            git --no-pager diff --unified=5 --stat=200 "${BASE_SHA}" "${HEAD_SHA}"
+            git --no-pager diff --unified=5 --stat=200 "${BASE_SHA}" "${HEAD_SHA}" -- '.' ':(exclude)kanban/'
             echo ""
-            git --no-pager diff --unified=5 "${BASE_SHA}" "${HEAD_SHA}"
+            git --no-pager diff --unified=5 "${BASE_SHA}" "${HEAD_SHA}" -- '.' ':(exclude)kanban/'
           } >> "$PROMPT_PATH"
 
       # Codex を structured output モードで実行

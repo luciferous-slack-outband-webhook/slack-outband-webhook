@@ -4,8 +4,11 @@ version.workspace = true
 edition.workspace = true
 
 [lib]
-crate-type = ["cdylib"]
+crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 worker = "0.8"
 serde = { version = "1", features = ["derive"] }
+hmac = "0.12"
+sha2 = "0.10"
+hex = "0.4"
